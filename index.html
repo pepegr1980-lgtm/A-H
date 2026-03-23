@@ -1,0 +1,225 @@
+<!DOCTYPE html> 
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Monitor de Ventas PRO</title>
+
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+
+<style>
+body {
+  font-family: Arial;
+  background:#f2f2f2;
+  margin:0;
+  padding:10px;
+}
+
+h1 {
+  text-align:center;
+  font-size:20px;
+}
+
+.filter-container {
+  display:flex;
+  flex-direction:column;
+  gap:8px;
+  margin-bottom:15px;
+}
+
+select, input {
+  padding:12px;
+  border-radius:8px;
+  border:1px solid #ccc;
+  font-size:16px;
+}
+
+button {
+  padding:12px;
+  border:none;
+  border-radius:8px;
+  font-size:16px;
+}
+
+.pruebaBtn { background:#2196F3; color:white; }
+.corteBtn { background:#9C27B0; color:white; }
+
+.card {
+  background:white;
+  border-radius:12px;
+  padding:12px;
+  margin-bottom:12px;
+  box-shadow:0 2px 6px rgba(0,0,0,0.1);
+}
+
+.card p {
+  margin:4px 0;
+  font-size:14px;
+}
+
+.productos {
+  background:#f9f9f9;
+  padding:8px;
+  border-radius:6px;
+  margin-top:5px;
+}
+
+.actions {
+  display:flex;
+  gap:10px;
+  margin-top:10px;
+}
+
+.entregarBtn {
+  background:green;
+  color:white;
+  flex:1;
+}
+
+.eliminarBtn {
+  background:red;
+  color:white;
+  flex:1;
+}
+</style>
+</head>
+
+<body>
+
+<h1>📱 Monitor de Ventas</h1>
+
+<div class="filter-container">
+<select id="filter">
+<option value="todos">Todos</option>
+<option value="Garrafón 20L">Garrafón</option>
+<option value="Paquete Botella 1L">Botella 1L</option>
+<option value="Paquete Botella 1.5L">Botella 1.5L</option>
+</select>
+
+<input type="text" id="busqueda" placeholder="Buscar...">
+
+<button class="pruebaBtn" id="agregarPrueba">Agregar pruebas</button>
+<button class="corteBtn" onclick="corteDelDia()">Corte del día</button>
+</div>
+
+<div id="contenedor"></div>
+
+<script>
+const firebaseConfig = {
+ apiKey: "AIzaSyC4FVokHFRbbTc4rBifNyt5bvOX2CuzkWw",
+ authDomain: "calificaciones-9f753.firebaseapp.com",
+ projectId: "calificaciones-9f753"
+};
+
+firebase.initializeApp(firebaseConfig);
+const db = firebase.firestore();
+
+const contenedor = document.getElementById('contenedor');
+const filterSelect = document.getElementById('filter');
+const buscador = document.getElementById('busqueda');
+
+let ventasCache = [];
+
+function render(filter='todos'){
+  contenedor.innerHTML='';
+
+  const texto = buscador.value.toLowerCase();
+  let datos = ventasCache.filter(v => !v.data.entregado);
+
+  if(filter !== 'todos'){
+    datos = datos.filter(v => v.data.producto === filter);
+  }
+
+  if(texto){
+    datos = datos.filter(v=>{
+      const d = v.data;
+      return (
+        (d.producto || '').toLowerCase().includes(texto) ||
+        (d.direccion || '').toLowerCase().includes(texto) ||
+        (d.telefono || '').toLowerCase().includes(texto) ||
+        (d.familia || '').toLowerCase().includes(texto)
+      );
+    });
+  }
+
+  if(datos.length===0){
+    contenedor.innerHTML = "<p style='text-align:center'>Sin pedidos</p>";
+    return;
+  }
+
+  datos.forEach(v=>{
+    const d = v.data;
+
+    let fecha = d.fecha_venta?.toDate
+      ? d.fecha_venta.toDate().toLocaleString()
+      : new Date(d.fecha_venta).toLocaleString();
+
+    const direccion = (d.direccion||'') + (d.numero ? ' #' + d.numero : '');
+
+    let productos = d.productos
+      ? d.productos.map(p=>`${p.producto} x${p.cantidad}`).join('<br>')
+      : `${d.producto} x${d.cantidad_vendida || 1}`;
+
+    let total = d.total || (d.precio * (d.cantidad_vendida || 1));
+
+    contenedor.innerHTML += `
+    <div class="card">
+      <p><b>👤 ${d.familia || ''}</b></p>
+      <p>📍 ${direccion}</p>
+      <p>📞 ${d.telefono}</p>
+      <p>🕒 ${fecha}</p>
+
+      <div class="productos">${productos}</div>
+
+      <p><b>Total: $${total}</b></p>
+      <p>${d.observaciones || ''}</p>
+
+      <div class="actions">
+        <button class="entregarBtn" onclick="entregar('${v.id}')">Entregar</button>
+        <button class="eliminarBtn" onclick="eliminar('${v.id}')">Eliminar</button>
+      </div>
+    </div>`;
+  });
+}
+
+async function eliminar(id){
+  await db.collection('ventas').doc(id).delete();
+}
+
+async function entregar(id){
+  await db.collection('ventas').doc(id).update({entregado:true});
+}
+
+function corteDelDia(){
+  let total=0;
+  ventasCache.forEach(v=>{
+    total += v.data.total || (v.data.precio * (v.data.cantidad_vendida||1)) || 0;
+  });
+  alert("Total del día: $" + total);
+}
+
+db.collection('ventas').orderBy('fecha_venta','desc')
+.onSnapshot(snap=>{
+  ventasCache = snap.docs.map(doc=>({id:doc.id,data:doc.data()}));
+  render(filterSelect.value);
+});
+
+filterSelect.addEventListener('change',()=>render(filterSelect.value));
+buscador.addEventListener('input',()=>render(filterSelect.value));
+
+document.getElementById('agregarPrueba').onclick = async ()=>{
+  await db.collection('ventas').add({
+    producto:"Garrafón 20L",
+    precio:200,
+    direccion:"Centro",
+    telefono:"111",
+    familia:"Cliente Demo",
+    fecha_venta:new Date(),
+    entregado:false
+  });
+};
+</script>
+
+</body>
+</html>
