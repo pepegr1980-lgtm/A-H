@@ -3,107 +3,60 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Monitor de Ventas PRO</title>
+<title>Monitor PRO NIVEL DIOS</title>
 
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
 <style>
-body {
-  font-family: Arial;
-  background:#f2f2f2;
-  margin:0;
-  padding:10px;
-}
+body { font-family: Arial; background:#f2f2f2; margin:0; padding:10px; }
 
-h1 {
-  text-align:center;
-  font-size:20px;
-}
-
-.filter-container {
-  display:flex;
-  flex-direction:column;
-  gap:8px;
-  margin-bottom:15px;
-}
-
-select, input {
-  padding:12px;
-  border-radius:8px;
-  border:1px solid #ccc;
-  font-size:16px;
-}
-
-button {
-  padding:12px;
-  border:none;
-  border-radius:8px;
-  font-size:16px;
-}
-
-.pruebaBtn { background:#2196F3; color:white; }
-.corteBtn { background:#9C27B0; color:white; }
+h1 { text-align:center; font-size:20px; }
 
 .card {
   background:white;
   border-radius:12px;
   padding:12px;
   margin-bottom:12px;
-  box-shadow:0 2px 6px rgba(0,0,0,0.1);
+  box-shadow:0 2px 6px rgba(0,0,0,0.15);
+  animation: aparecer 0.3s ease;
 }
 
-.card p {
-  margin:4px 0;
+@keyframes aparecer {
+  from { transform:scale(0.95); opacity:0; }
+  to { transform:scale(1); opacity:1; }
+}
+
+.nuevo { border-left:6px solid red; }
+.medio { border-left:6px solid orange; }
+.viejo { border-left:6px solid green; }
+
+button {
+  padding:10px;
+  border:none;
+  border-radius:8px;
+  margin-top:5px;
+  width:100%;
   font-size:14px;
 }
 
-.productos {
-  background:#f9f9f9;
-  padding:8px;
-  border-radius:6px;
-  margin-top:5px;
-}
-
-.actions {
-  display:flex;
-  gap:10px;
-  margin-top:10px;
-}
-
-.entregarBtn {
-  background:green;
-  color:white;
-  flex:1;
-}
-
-.eliminarBtn {
-  background:red;
-  color:white;
-  flex:1;
-}
+.entregarBtn { background:green; color:white; }
+.eliminarBtn { background:red; color:white; }
+.rutaBtn { background:#2196F3; color:white; }
+.estadoBtn { background:#FF9800; color:white; }
+.printBtn { background:#9C27B0; color:white; }
 </style>
 </head>
 
 <body>
 
-<h1>📱 Monitor de Ventas</h1>
-
-<div class="filter-container">
-<select id="filter">
-<option value="todos">Todos</option>
-<option value="Garrafón 20L">Garrafón</option>
-<option value="Paquete Botella 1L">Botella 1L</option>
-<option value="Paquete Botella 1.5L">Botella 1.5L</option>
-</select>
-
-<input type="text" id="busqueda" placeholder="Buscar...">
-
-<button class="pruebaBtn" id="agregarPrueba">Agregar pruebas</button>
-<button class="corteBtn" onclick="corteDelDia()">Corte del día</button>
-</div>
+<h1>🚀 Monitor Nivel Dios</h1>
 
 <div id="contenedor"></div>
+
+<audio id="sonido">
+  <source src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg">
+</audio>
 
 <script>
 const firebaseConfig = {
@@ -116,71 +69,72 @@ firebase.initializeApp(firebaseConfig);
 const db = firebase.firestore();
 
 const contenedor = document.getElementById('contenedor');
-const filterSelect = document.getElementById('filter');
-const buscador = document.getElementById('busqueda');
+const sonido = document.getElementById('sonido');
 
 let ventasCache = [];
+let idsMostrados = new Set();
 
-function render(filter='todos'){
+function tiempoColor(fecha){
+  const minutos = (new Date() - fecha) / 60000;
+  if(minutos < 5) return "nuevo";
+  if(minutos < 15) return "medio";
+  return "viejo";
+}
+
+function render(){
   contenedor.innerHTML='';
 
-  const texto = buscador.value.toLowerCase();
-  let datos = ventasCache.filter(v => !v.data.entregado);
-
-  if(filter !== 'todos'){
-    datos = datos.filter(v => v.data.producto === filter);
-  }
-
-  if(texto){
-    datos = datos.filter(v=>{
-      const d = v.data;
-      return (
-        (d.producto || '').toLowerCase().includes(texto) ||
-        (d.direccion || '').toLowerCase().includes(texto) ||
-        (d.telefono || '').toLowerCase().includes(texto) ||
-        (d.familia || '').toLowerCase().includes(texto)
-      );
-    });
-  }
-
-  if(datos.length===0){
-    contenedor.innerHTML = "<p style='text-align:center'>Sin pedidos</p>";
-    return;
-  }
-
-  datos.forEach(v=>{
+  ventasCache.forEach(v=>{
     const d = v.data;
+    if(d.entregado) return;
 
     let fecha = d.fecha_venta?.toDate
-      ? d.fecha_venta.toDate().toLocaleString()
-      : new Date(d.fecha_venta).toLocaleString();
+      ? d.fecha_venta.toDate()
+      : new Date(d.fecha_venta);
+
+    const clase = tiempoColor(fecha);
 
     const direccion = (d.direccion||'') + (d.numero ? ' #' + d.numero : '');
+    const total = d.total || (d.precio * (d.cantidad_vendida||1));
 
-    let productos = d.productos
+    const productos = d.productos
       ? d.productos.map(p=>`${p.producto} x${p.cantidad}`).join('<br>')
       : `${d.producto} x${d.cantidad_vendida || 1}`;
 
-    let total = d.total || (d.precio * (d.cantidad_vendida || 1));
-
     contenedor.innerHTML += `
-    <div class="card">
-      <p><b>👤 ${d.familia || ''}</b></p>
-      <p>📍 ${direccion}</p>
-      <p>📞 ${d.telefono}</p>
-      <p>🕒 ${fecha}</p>
+    <div class="card ${clase}">
+      <b>${d.familia || ''}</b><br>
+      📍 ${direccion}<br>
+      📞 ${d.telefono}<br>
+      🕒 ${fecha.toLocaleTimeString()}<br>
 
-      <div class="productos">${productos}</div>
+      <div>${productos}</div>
 
-      <p><b>Total: $${total}</b></p>
-      <p>${d.observaciones || ''}</p>
+      <b>Total: $${total}</b><br>
+      <small>${d.estado || 'Pendiente'}</small>
 
-      <div class="actions">
-        <button class="entregarBtn" onclick="entregar('${v.id}')">Entregar</button>
-        <button class="eliminarBtn" onclick="eliminar('${v.id}')">Eliminar</button>
-      </div>
+      <button class="rutaBtn" onclick="abrirMapa('${direccion}')">📍 Ruta</button>
+      <button class="estadoBtn" onclick="cambiarEstado('${v.id}','${d.estado||'Pendiente'}')">🚚 Cambiar estado</button>
+      <button class="printBtn" onclick="imprimir('${direccion}','${productos}',${total})">🧾 Ticket</button>
+      <button class="entregarBtn" onclick="entregar('${v.id}')">✅ Entregar</button>
+      <button class="eliminarBtn" onclick="eliminar('${v.id}')">❌ Eliminar</button>
     </div>`;
   });
+}
+
+function abrirMapa(dir){
+  window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(dir)}`);
+}
+
+function imprimir(dir, productos, total){
+  const win = window.open('', '', 'width=300,height=600');
+  win.document.write(`
+    <h3>Pedido</h3>
+    <p>${dir}</p>
+    <p>${productos}</p>
+    <h2>Total: $${total}</h2>
+    <script>window.print();<\/script>
+  `);
 }
 
 async function eliminar(id){
@@ -191,34 +145,29 @@ async function entregar(id){
   await db.collection('ventas').doc(id).update({entregado:true});
 }
 
-function corteDelDia(){
-  let total=0;
-  ventasCache.forEach(v=>{
-    total += v.data.total || (v.data.precio * (v.data.cantidad_vendida||1)) || 0;
-  });
-  alert("Total del día: $" + total);
+async function cambiarEstado(id, estado){
+  let nuevo = "Pendiente";
+  if(estado === "Pendiente") nuevo = "En camino";
+  else if(estado === "En camino") nuevo = "Entregado";
+
+  await db.collection('ventas').doc(id).update({estado:nuevo});
 }
 
 db.collection('ventas').orderBy('fecha_venta','desc')
 .onSnapshot(snap=>{
-  ventasCache = snap.docs.map(doc=>({id:doc.id,data:doc.data()}));
-  render(filterSelect.value);
-});
+  const nuevosIds = snap.docs.map(d=>d.id);
 
-filterSelect.addEventListener('change',()=>render(filterSelect.value));
-buscador.addEventListener('input',()=>render(filterSelect.value));
-
-document.getElementById('agregarPrueba').onclick = async ()=>{
-  await db.collection('ventas').add({
-    producto:"Garrafón 20L",
-    precio:200,
-    direccion:"Centro",
-    telefono:"111",
-    familia:"Cliente Demo",
-    fecha_venta:new Date(),
-    entregado:false
+  nuevosIds.forEach(id=>{
+    if(!idsMostrados.has(id)){
+      sonido.play();
+    }
   });
-};
+
+  idsMostrados = new Set(nuevosIds);
+
+  ventasCache = snap.docs.map(doc=>({id:doc.id,data:doc.data()}));
+  render();
+});
 </script>
 
 </body>
